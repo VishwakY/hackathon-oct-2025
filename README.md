@@ -27,6 +27,10 @@ python -m venv .venv
 pip install --upgrade pip
 pip install uvicorn fastapi chromadb sentence-transformers "langchain-google-genai==2.0.8" "google-generativeai>=0.8.0,<0.9.0" "protobuf>=5.29,<6.0" FlagEmbedding requests
 
+# 3) Run the Program:
+python build_index.py (Rebuild index any time data changes)
+python -m uvicorn src.app:app --host 0.0.0.0 --port 8000 --reload
+
 # Optional: speed up Hugging Face downloads or silence symlink warning
 # $env:HF_HUB_DISABLE_SYMLINKS_WARNING="1"
 # pip install "huggingface_hub[hf_xet]"
