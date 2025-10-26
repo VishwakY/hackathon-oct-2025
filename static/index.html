@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SEC Filing Q&A (RAG)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    :root { --bg:#0f172a; --text:#e5e7eb; --muted:#9ca3af; --accent:#60a5fa; }
+    body { margin:0; font-family:system-ui, Arial; background:#0f172a; color:var(--text); }
+    .container { max-width:960px; margin:32px auto; padding:0 16px; }
+    .card { background:#0b1022; border:1px solid #1f2937; border-radius:14px; padding:20px; }
+    h1 { margin:0 0 10px; }
+    .subtitle { color:var(--muted); margin-bottom:14px; }
+    .samples { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+    .pill { background:#111827; border:1px solid #1f2937; border-radius:999px; padding:6px 10px; cursor:pointer; }
+    .row { display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+    input[type="text"] { flex:1; min-width:300px; padding:10px 12px; font-size:16px; color:var(--text); background:#0b1022; border:1px solid #1f2937; border-radius:10px; }
+    button { padding:10px 14px; font-size:16px; color:#0b1022; background:var(--accent); border:none; border-radius:10px; cursor:pointer; font-weight:600; }
+    button.secondary { background:#334155; color:var(--text); }
+    .status { color:var(--muted); min-height:20px; margin:6px 0 10px; font-size:14px; }
+    .grid { display:grid; grid-template-columns:1fr; gap:12px; }
+    .panel { background:#0b1022; border:1px solid #1f2937; border-radius:10px; padding:12px; }
+    .panel h2 { margin:0 0 8px; font-size:16px; }
+    .answer { font-size:16px; line-height:1.5; white-space:pre-wrap; }
+    .kv { display:flex; gap:16px; flex-wrap:wrap; margin:6px 0 8px; color:var(--muted); font-size:14px; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#1f2937; color:var(--text); font-size:12px; border:1px solid #334155; }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th, td { text-align:left; padding:8px; border-bottom:1px solid #1f2937; vertical-align:top; }
+    pre { background:#0b1022; color:#cbd5e1; border:1px solid #1f2937; border-radius:8px; padding:10px; overflow:auto; max-height:300px; }
+    .footer { margin-top:12px; color:var(--muted); font-size:12px; text-align:right; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>SEC Filing Q&A (RAG)</h1>
+      <div class="subtitle">Ask: “Supply chain risks”, “Next quarter outlook”, “Capex”</div>
+      <div class="row">
+        <input id="q" type="text" placeholder="Type your question..." />
+        <button onclick="ask()">Ask</button>
+        <button class="secondary" onclick="clearAll()">Clear</button>
+      </div>
+      <div class="status" id="status">Idle</div>
+
+      <div class="grid">
+        <div class="panel">
+          <h2>Answer</h2>
+          <div class="kv">
+            <div><span class="badge">Confidence</span> <span id="confidence">-</span></div>
+            <div><span class="badge">Citations</span> <span id="citeCount">-</span></div>
+          </div>
+          <div class="answer" id="answer">—</div>
+        </div>
+
+        <div class="panel">
+          <h2>Citations</h2>
+          <table>
+            <thead>
+              <tr><th style="width:40%;">doc_id</th><th style="width:20%;">chunk_id</th><th>preview</th></tr>
+            </thead>
+            <tbody id="citesBody"><tr><td colspan="3" style="color:#9ca3af;">No citations yet</td></tr></tbody>
+          </table>
+        </div>
+
+        <div class="panel">
+          <h2>Raw JSON</h2>
+          <pre id="raw">{}</pre>
+        </div>
+      </div>
+
+      <div class="footer">Backend: Chroma + BGE Reranker + Gemini</div>
+    </div>
+  </div>
+
+  <script>
+    function clearAll() {
+      document.getElementById('q').value = '';
+      setStatus('Idle');
+      document.getElementById('answer').textContent = '—';
+      document.getElementById('confidence').textContent = '-';
+      document.getElementById('citeCount').textContent = '-';
+      document.getElementById('raw').textContent = '{}';
+      document.getElementById('citesBody').innerHTML = '<tr><td colspan="3" style="color:#9ca3af;">No citations yet</td></tr>';
+    }
+    function setStatus(msg) { document.getElementById('status').textContent = msg; }
+
+    async function ask() {
+      const q = document.getElementById('q').value.trim();
+      if (!q) { setStatus('Please enter a question.'); return; }
+      setStatus('Loading...');
+      try {
+        const res = await fetch('/ask?question=' + encodeURIComponent(q) + '&k=12');
+        const data = await res.json();
+        document.getElementById('raw').textContent = JSON.stringify(data, null, 2);
+        document.getElementById('answer').textContent = data.answer || '—';
+        let conf = typeof data.confidence === 'number' ? data.confidence.toFixed(2) : '-';
+        document.getElementById('confidence').textContent = conf;
+
+        const cites = Array.isArray(data.citations) ? data.citations : [];
+        console.log('Citations received from backend:', cites);
+        document.getElementById('citeCount').textContent = String(cites.length);
+
+        const tbody = document.getElementById('citesBody');
+        tbody.innerHTML = '';
+        if (cites.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="3" style="color:#9ca3af;">No citations returned</td></tr>';
+        } else {
+          for (const c of cites) {
+            const doc = (c.doc_id !== undefined && c.doc_id !== null) ? String(c.doc_id) : '';
+            const chunk = (c.chunk_id !== undefined && c.chunk_id !== null) ? String(c.chunk_id) : '';
+            const prev = c.preview ? c.preview.slice(0, 220) : '(preview not available)';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${doc}</td><td>${chunk}</td><td style="color:#9ca3af;">${prev}</td>`;
+            tbody.appendChild(tr);
+          }
+        }
+        setStatus('Done');
+      } catch (e) {
+        setStatus('Error: ' + (e?.message || String(e)));
+      }
+    }
+  </script>
+</body>
+</html>
